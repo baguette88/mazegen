@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurable Maze Generator</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Configurable Maze Generator</h1>
+        <div class="controls">
+            <div>
+                <label for="width">Width:</label>
+                <input type="number" id="width" min="31" max="61" value="41">
+            </div>
+            <div>
+                <label for="height">Height:</label>
+                <input type="number" id="height" min="31" max="61" value="41">
+            </div>
+        </div>
+        <div class="buttons">
+            <button id="generateButton">Generate Maze</button>
+            <button id="saveButton">Save as Image</button>
+        </div>
+        <div id="mazeContainer">
+            <div id="maze"></div>
+        </div>
+        <div id="legend" class="legend"></div>
+    </div>
+
+    <script>
+        const config = {
+            maze: {
+                minSize: 31,
+                maxSize: 61,
+                defaultWidth: 41,
+                defaultHeight: 41,
+            },
+            rooms: [
+                { name: 'Start', size: 3, color: '#0f0', symbol: 2 },
+                { name: 'End', size: 3, color: '#f00', symbol: 3 },
+                { name: 'Torch', size: 3, color: '#ff00ff', symbol: 4 },
+                { name: 'Sconce', size: 3, color: '#00ffff', symbol: 5 },
+                { name: 'Boombug Barrier', size: 3, color: '#ffa500', symbol: 6 },
+                { name: 'Platforming 1', size: 5, color: '#8b4513', symbol: 7 },
+                { name: 'Platforming 2', size: 5, color: '#8b4513', symbol: 8 },
+                { name: 'Midway Sconce', size: 3, color: '#ff00ff', symbol: 9 },
+            ],
+            cellColors: {
+                wall: '#333',
+                path: '#fff',
+            },
+        };
+
+        let maze = [];
+        let cellSize = 20;
+
+        function generateMaze() {
+            const width = parseInt(document.getElementById('width').value);
+            const height = parseInt(document.getElementById('height').value);
+            const adjustedWidth = width % 2 === 0 ? width + 1 : width;
+            const adjustedHeight = height % 2 === 0 ? height + 1 : height;
+            
+            maze = Array(adjustedHeight).fill().map(() => Array(adjustedWidth).fill(1));
+            
+            function recursiveBacktracker(x, y) {
+                const directions = [
+                    [0, -2], [2, 0], [0, 2], [-2, 0]
+                ].sort(() => Math.random() - 0.5);
+
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx > 0 && nx < adjustedWidth - 1 && ny > 0 && ny < adjustedHeight - 1 && maze[ny][nx] === 1) {
+                        maze[y + dy/2][x + dx/2] = 0;
+                        maze[ny][nx] = 0;
+                        recursiveBacktracker(nx, ny);
+                    }
+                }
+            }
+
+            maze[1][1] = 0;
+            recursiveBacktracker(1, 1);
+
+            addRooms();
+            drawMaze();
+        }
+
+        function addRooms() {
+            const roomPositions = [
+                { x: 1, y: 1 }, // Start
+                { x: maze[0].length - 4, y: maze.length - 4 }, // End
+                { x: 5, y: 1 }, // Torch (adjacent to start)
+                { x: maze[0].length - 7, y: maze.length - 7 }, // Sconce (same quadrant as end)
+                { x: 3, y: maze.length - 6 }, // Boombug Barrier
+                { x: Math.floor(maze[0].length / 3) - 2, y: Math.floor(maze.length / 2) - 2 }, // Platforming 1
+                { x: Math.floor(maze[0].length * 2/3) - 2, y: Math.floor(maze.length / 2) - 2 }, // Platforming 2
+                { x: Math.floor(maze[0].length / 2) - 2, y: Math.floor(maze.length / 2) - 2 }, // Midway Torch
+            ];
+
+            config.rooms.forEach((room, index) => {
+                const { x, y } = roomPositions[index];
+                for (let dy = 0; dy < room.size; dy++) {
+                    for (let dx = 0; dx < room.size; dx++) {
+                        maze[y + dy][x + dx] = 0;
+                    }
+                }
+                maze[y + Math.floor(room.size / 2)][x + Math.floor(room.size / 2)] = room.symbol;
+
+                if (index === 0 || index === 1) { // Start or End room
+                    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+                    const [dx, dy] = directions[Math.floor(Math.random() * directions.length)];
+                    let exitX = x + (dx * (room.size - 1));
+                    let exitY = y + (dy * (room.size - 1));
+                    maze[exitY][exitX] = 0; // Create exit on the wall
+                } else {
+                    // For other rooms, connect to the main path
+                    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+                    let connected = false;
+                    while (!connected) {
+                        const [dx, dy] = directions[Math.floor(Math.random() * directions.length)];
+                        let cx = x + Math.floor(room.size / 2) + dx;
+                        let cy = y + Math.floor(room.size / 2) + dy;
+                        while (cx > 0 && cx < maze[0].length - 1 && cy > 0 && cy < maze.length - 1) {
+                            if (maze[cy][cx] === 0) {
+                                connected = true;
+                                break;
+                            }
+                            maze[cy][cx] = 0;
+                            cx += dx;
+                            cy += dy;
+                        }
+                    }
+                }
+            });
+
+            // Ensure connection between start and torch rooms
+            for (let y = 1; y <= 3; y++) {
+                maze[y][4] = 0;
+            }
+        }
+
+        function drawMaze() {
+            const mazeElement = document.getElementById('maze');
+            mazeElement.innerHTML = '';
+            
+            maze.forEach((row, y) => {
+                const rowElement = document.createElement('div');
+                rowElement.className = 'row';
+                row.forEach((cell, x) => {
+                    const cellElement = document.createElement('div');
+                    cellElement.className = 'cell';
+                    cellElement.style.backgroundColor = getCellColor(cell);
+                    cellElement.style.width = cellElement.style.height = `${cellSize}px`;
+                    if (cell === 2) { // Start
+                        cellElement.innerHTML = '&#9679;'; // Circle
+                        cellElement.style.color = 'green';
+                    } else if (cell === 3) { // End
+                        cellElement.innerHTML = '&#9733;'; // Star
+                        cellElement.style.color = 'yellow';
+                    }
+                    rowElement.appendChild(cellElement);
+                });
+                mazeElement.appendChild(rowElement);
+            });
+
+            updateCellSize();
+        }
+
+        function getCellColor(cell) {
+            if (cell === 1) return config.cellColors.wall;
+            const room = config.rooms.find(r => r.symbol === cell);
+            return room ? room.color : config.cellColors.path;
+        }
+
+        function updateCellSize() {
+            const container = document.getElementById('mazeContainer');
+            const maxWidth = container.offsetWidth;
+            const maxHeight = container.offsetHeight;
+            const mazeWidth = maze[0].length;
+            const mazeHeight = maze.length;
+            cellSize = Math.floor(Math.min(maxWidth / mazeWidth, maxHeight / mazeHeight, 20));
+            
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                cell.style.width = `${cellSize}px`;
+                cell.style.height = `${cellSize}px`;
+                cell.style.fontSize = `${cellSize * 0.8}px`;
+            });
+        }
+
+        function saveMazeAsImage() {
+            const canvas = document.createElement('canvas');
+            canvas.width = maze[0].length * cellSize;
+            canvas.height = maze.length * cellSize;
+            const ctx = canvas.getContext('2d');
+
+            maze.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    ctx.fillStyle = getCellColor(cell);
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    if (cell === 2) { // Start
+                        ctx.fillStyle = 'green';
+                        ctx.beginPath();
+                        ctx.arc(x * cellSize + cellSize / 2, y * cellSize + cellSize / 2, cellSize / 3, 0, 2 * Math.PI);
+                        ctx.fill();
+                    } else if (cell === 3) { // End
+                        ctx.fillStyle = 'yellow';
+                        ctx.font = `${cellSize * 0.8}px Arial`;
+                        ctx.fillText('★', x * cellSize + cellSize / 4, y * cellSize + cellSize * 3/4);
+                    }
+                });
+            });
+
+            const link = document.createElement('a');
+            link.download = 'maze_with_rooms.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        function createLegend() {
+            const legendElement = document.getElementById('legend');
+            legendElement.innerHTML = '';
+            
+            [{ name: 'Wall', color: config.cellColors.wall }, { name: 'Path', color: config.cellColors.path }, ...config.rooms].forEach(item => {
+                const itemElement = document.createElement('div');
+                itemElement.className = 'legend-item';
+                let innerContent = `<div class="legend-color" style="background-color: ${item.color};"></div>${item.name}`;
+                if (item.name === 'Start') {
+                    innerContent = `<div class="legend-color" style="background-color: ${item.color};"><span style="color: green;">&#9679;</span></div>${item.name}`;
+                } else if (item.name === 'End') {
+                    innerContent = `<div class="legend-color" style="background-color: ${item.color};"><span style="color: yellow;">&#9733;</span></div>${item.name}`;
+                }
+                itemElement.innerHTML = innerContent;
+                legendElement.appendChild(itemElement);
+            });
+        }
+
+        document.getElementById('generateButton').addEventListener('click', generateMaze);
+        document.getElementById('saveButton').addEventListener('click', saveMazeAsImage);
+        window.addEventListener('resize', updateCellSize);
+
+        createLegend();
+        generateMaze();
+    </script>
+</body>
+</html>
